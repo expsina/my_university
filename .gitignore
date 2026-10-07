@@ -1,0 +1,14 @@
+*.xlsx
+*.docx
+*.doc
+*.pptx
+*.DS_Store
+*.gdt
+*.pyc
+*.xls 
+*.zip
+*.RHistory
+*.RData
+.vscode/settings.json
+.venv/
+.env
