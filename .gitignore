@@ -5,7 +5,8 @@
 *.DS_Store
 *.gdt
 *.pyc
-*.xlsx 
+*.xls
+*.xlsx
 *.zip
 *.RHistory
 *.RData
@@ -13,3 +14,8 @@
 .venv/
 .env
 library/
+.ipynb_checkpoints/
+__pycache__/
+.DS_Store
+
+!_shared/custom-reference.docx
