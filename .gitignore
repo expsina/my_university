@@ -6,7 +6,6 @@
 *.gdt
 *.pyc
 *.xls
-*.xlsx
 *.zip
 *.RHistory
 *.RData
