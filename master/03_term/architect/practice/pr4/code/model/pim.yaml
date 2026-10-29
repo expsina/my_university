@@ -1,0 +1,90 @@
+# PIM: платформенно-независимая модель загрузки курсов валют.
+# Здесь нет SQL-типов, HTTP-маршрутов, брокеров и названий СУБД.
+model: CurrencyRatesIngestion
+version: 1
+
+enums:
+  BatchStatus: [accepted, rejected]
+
+# Домен-типы. Тип CurrencyCode несёт собственный инвариант INV-5.
+types:
+  CurrencyCode:
+    base: Text
+    invariant: {id: INV-5, ocl: "self.matches('[A-Z]{3}')",
+                text: "Код валюты состоит ровно из трёх заглавных латинских букв."}
+
+entities:
+  Source:
+    description: Поставщик данных, например внешний источник курсов валют.
+    attributes:
+      name: {type: Text, identifying: true}
+  IngestionBatch:
+    description: Пакет курсов, принятый от источника за одну передачу.
+    attributes:
+      batchKey: {type: Text}
+      contentDigest: {type: Text}
+      status: {type: BatchStatus}
+      rowCount: {type: Integer}
+      receivedAt: {type: Timestamp, auto: creationMoment}
+    associations:
+      source: {target: Source, multiplicity: "1"}
+  ExchangeRate:
+    description: Курс одной валюты к другой на дату, принятый в составе пакета.
+    attributes:
+      baseCurrency: {type: CurrencyCode}
+      quoteCurrency: {type: CurrencyCode}
+      rateDate: {type: Date}
+      rate: {type: Decimal}
+    associations:
+      batch: {target: IngestionBatch, multiplicity: "1"}
+  ValidationIssue:
+    description: Причина, по которой строка пакета не прошла проверку.
+    attributes:
+      rowNumber: {type: Integer}
+      reason: {type: Text}
+    associations:
+      batch: {target: IngestionBatch, multiplicity: "1"}
+
+invariants:
+  - {id: INV-1, entity: IngestionBatch, kind: unique, over: [source, batchKey],
+     ocl: "IngestionBatch.allInstances()->isUnique(b | Tuple{s = b.source, k = b.batchKey})",
+     text: "У одного источника не бывает двух пакетов с одним ключом."}
+  - {id: INV-2, entity: ExchangeRate, kind: positive, attribute: rate,
+     ocl: "self.rate > 0",
+     text: "Курс строго положителен."}
+  - {id: INV-3, entity: ExchangeRate, kind: distinct, attributes: [baseCurrency, quoteCurrency],
+     ocl: "self.baseCurrency <> self.quoteCurrency",
+     text: "Базовая и котируемая валюты различаются."}
+  - {id: INV-4, entity: ExchangeRate, kind: unique, over: [batch, baseCurrency, quoteCurrency, rateDate],
+     ocl: "ExchangeRate.allInstances()->isUnique(r | Tuple{b = r.batch, c1 = r.baseCurrency, c2 = r.quoteCurrency, d = r.rateDate})",
+     text: "В пакете не больше одного курса на пару валют и дату."}
+  - {id: INV-8, entity: ExchangeRate, kind: behavior,
+     text: "Курс задаётся не более чем с 8 знаками после запятой и строго меньше 10^10; значения вне этих границ отклоняются, а не округляются."}
+  - {id: INV-6, entity: IngestionBatch, kind: behavior,
+     ocl: "self.status = BatchStatus::rejected implies self.rates->isEmpty()",
+     text: "Пакет принимается целиком или отклоняется целиком: у отклонённого пакета нет курсов, но есть причины отказа."}
+  - {id: INV-7, entity: IngestionBatch, kind: behavior,
+     text: "Повторная передача пакета с тем же ключом и тем же содержимым не меняет данные и возвращает прежний результат; с другим содержимым — конфликт."}
+
+structures:
+  RateRow: {baseCurrency: CurrencyCode, quoteCurrency: CurrencyCode, rateDate: Date, rate: Decimal}
+  Issue: {rowNumber: Integer, reason: Text}
+  BatchResult: {batchKey: Text, status: BatchStatus, rowCount: Integer, issues: "Issue[]"}
+  Rate: {baseCurrency: CurrencyCode, quoteCurrency: CurrencyCode, rateDate: Date, rate: Decimal, source: Text}
+
+operations:
+  submitBatch:
+    description: Источник передаёт пакет курсов.
+    kind: command
+    idempotent: true
+    idempotencyKey: [source, batchKey]
+    input: {source: Text, batchKey: Text, rates: "RateRow[]"}
+    output: BatchResult
+    outcomes: [created, repeated, contentConflict]
+  getRate:
+    description: Потребитель запрашивает курс на дату.
+    kind: query
+    input: {baseCurrency: CurrencyCode, quoteCurrency: CurrencyCode, rateDate: Date}
+    output: Rate
+    outcomes: [found, notFound]
+    lookup: {entity: ExchangeRate, by: [baseCurrency, quoteCurrency, rateDate]}
