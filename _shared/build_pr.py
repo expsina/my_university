@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import os
 from pathlib import Path
 
 import yaml
@@ -94,7 +95,7 @@ def collect_context(md_path: Path) -> tuple[dict, bool]:
 
 def run_pandoc(md_path: Path, out_path: Path) -> None:
     text = md_path.read_text(encoding="utf-8")
-    cmd = ["pandoc", md_path.name]
+    cmd = ["pandoc", "-f", "markdown+lists_without_preceding_blankline", md_path.name]
     # mermaid-filter должен идти ДО lua-фильтра
     if re.search(r"```\s*\{?\.?mermaid", text):
         if not shutil.which("mermaid-filter"):
@@ -106,7 +107,11 @@ def run_pandoc(md_path: Path, out_path: Path) -> None:
         cmd += ["--reference-doc", str(REFERENCE)]
     cmd += ["-o", str(out_path)]
     # cwd = папка документа, чтобы относительные пути к картинкам работали
-    subprocess.run(cmd, check=True, cwd=md_path.parent)
+    env = dict(os.environ)
+    env.setdefault("MERMAID_FILTER_SCALE", "3")
+    env.setdefault("MERMAID_FILTER_WIDTH", "1200")
+    env.setdefault("MERMAID_FILTER_BACKGROUND", "white")
+    subprocess.run(cmd, check=True, cwd=md_path.parent, env=env)
 
 
 def fill_title(context: dict, out_path: Path) -> None:
